@@ -1,0 +1,15 @@
+services:
+  web:
+    build: ./app
+    ports:
+      - "8000:8000"
+    environment:
+      DATA_DIR: /data
+      # 演示"大批准备期间小批先发布"时可调大, 例如 "1"; 生产保持 0
+      PREPARE_DELAY_SECONDS: "0"
+    volumes:
+      - warehouse-data:/data
+    restart: unless-stopped
+
+volumes:
+  warehouse-data:

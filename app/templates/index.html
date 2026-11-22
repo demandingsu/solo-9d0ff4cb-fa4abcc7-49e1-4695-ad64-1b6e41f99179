@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>病害数据入仓</title>
+<style>
+  body { font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; margin: 2rem auto; max-width: 1080px; color: #222; }
+  h1 { font-size: 1.4rem; }
+  fieldset { border: 1px solid #ccc; border-radius: 8px; margin-bottom: 1.5rem; }
+  legend { font-weight: 600; }
+  label { display: block; margin: .5rem 0 .2rem; }
+  input[type=text] { width: 260px; padding: .3rem; }
+  button { padding: .4rem 1.2rem; margin-top: .6rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { border: 1px solid #ddd; padding: .35rem .5rem; text-align: left; }
+  th { background: #f4f4f4; }
+  .ok { color: #0a7a2f; } .bad { color: #b00020; } .run { color: #9a6a00; }
+  #msg { margin: .6rem 0; white-space: pre-wrap; }
+  .hint { color: #666; font-size: .85rem; }
+  code { background: #f4f4f4; padding: 0 .25rem; }
+</style>
+</head>
+<body>
+<h1>养护中心 · 病害数据入仓</h1>
+
+<fieldset>
+  <legend>上传批次</legend>
+  <form id="upform">
+    <label>批次号(字母/数字/._-)</label>
+    <input type="text" name="batch_no" required placeholder="例如 2026-11-22-01">
+    <label>路段病害明细 CSV(含 <code>{{ detail_code_col }}</code> 列)</label>
+    <input type="file" name="details" accept=".csv" required>
+    <label>本批代码对照表 CSV(含 <code>{{ map_code_col }}</code>、<code>{{ map_name_col }}</code> 列)</label>
+    <input type="file" name="mapping" accept=".csv" required>
+    <br><button type="submit">入仓</button>
+  </form>
+  <div id="msg"></div>
+  <div class="hint">
+    同号同内容重传将沿用原发布; 同号不同内容会报 409 冲突。<br>
+    编码明细中代码列名为 <code>{{ out_code_col }}</code>(全仓统一永久整数码)。
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>批次列表(每 2 秒自动刷新)</legend>
+  <label>我所持字典版本(用于生成增补链接): <input type="text" id="since" value="0" style="width:80px"></label>
+  <table>
+    <thead><tr>
+      <th>批次号</th><th>状态</th><th>行数</th><th>字典版本</th><th>发布时间(UTC)</th><th>下载</th><th>错误</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="hint"><a href="/dictionary.csv">下载全仓字典当前全量</a></div>
+</fieldset>
+
+<script>
+const fmt = (s) => s || "";
+async function refresh() {
+  const since = document.getElementById("since").value || "0";
+  const res = await fetch("/api/batches");
+  const rows = await res.json();
+  const tb = document.getElementById("rows");
+  tb.innerHTML = "";
+  for (const b of rows) {
+    const tr = document.createElement("tr");
+    const cls = b.status === "published" ? "ok" : (b.status === "failed" ? "bad" : "run");
+    const links = b.status === "published"
+      ? `<a href="${b.links.details}">编码明细</a> · <a href="${b.links.dict_delta}?since=${encodeURIComponent(since)}">字典增补</a>`
+      : "";
+    tr.innerHTML = `<td>${b.batch_no}</td><td class="${cls}">${b.status}</td>` +
+      `<td>${fmt(b.row_count)}</td><td>${fmt(b.dict_version)}</td>` +
+      `<td>${fmt(b.published_at)}</td><td>${links}</td><td class="bad">${fmt(b.error)}</td>`;
+    tb.appendChild(tr);
+  }
+}
+document.getElementById("upform").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById("msg");
+  msg.textContent = "上传中…";
+  const res = await fetch("/batches", { method: "POST", body: new FormData(e.target) });
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 202) msg.textContent = `批次 ${body.batch_no} 已受理, 入仓中…`;
+  else if (res.status === 200) msg.textContent = `批次 ${body.batch_no} 已存在且内容一致, 沿用原发布(状态 ${body.status})。`;
+  else if (res.status === 409) msg.textContent = `冲突: ${body.error}`;
+  else msg.textContent = `失败(${res.status}): ${body.error || res.statusText}`;
+  refresh();
+});
+setInterval(refresh, 2000);
+refresh();
+</script>
+</body>
+</html>
